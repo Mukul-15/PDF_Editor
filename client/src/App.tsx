@@ -1,4 +1,5 @@
 import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
+import { useState } from 'react'
 import './index.css'
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -53,18 +54,52 @@ function UploadPage() {
 }
 
 function UploadForm() {
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const [uploading, setUploading] = useState(false)
+  const [uploadedFile, setUploadedFile] = useState<{fileId: string, filename: string} | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const form = e.currentTarget
     const input = form.elements.namedItem('file') as HTMLInputElement
     const file = input.files?.[0]
     if (!file) return
-    alert(`Selected: ${file.name}`)
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        setUploadedFile(result)
+        alert(`Uploaded: ${result.filename}`)
+      } else {
+        alert('Upload failed')
+      }
+    } catch (error) {
+      alert('Upload error: ' + error)
+    } finally {
+      setUploading(false)
+    }
   }
   return (
     <form onSubmit={handleSubmit} style={{ display: 'grid', gap: 12 }}>
       <input name="file" type="file" accept="application/pdf" className="input" />
-      <button className="btn btn-primary">Upload</button>
+      <button className="btn btn-primary" disabled={uploading}>
+        {uploading ? 'Uploading...' : 'Upload'}
+      </button>
+      {uploadedFile && (
+        <div style={{ padding: '12px', background: '#2a2a2a', borderRadius: '6px', fontSize: '14px' }}>
+          ✅ Uploaded: {uploadedFile.filename}
+          <br />
+          <small>File ID: {uploadedFile.fileId}</small>
+        </div>
+      )}
     </form>
   )
 }
@@ -87,10 +122,65 @@ function ViewerPage() {
 }
 
 function DownloadPage() {
+  const [fileId, setFileId] = useState('')
+  const [downloading, setDownloading] = useState(false)
+
+  const handleDownload = async () => {
+    if (!fileId.trim()) {
+      alert('Please enter a file ID')
+      return
+    }
+
+    setDownloading(true)
+    try {
+      const response = await fetch(`/api/export/${fileId}`)
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `annotated-${fileId}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } else {
+        alert('Download failed - file not found')
+      }
+    } catch (error) {
+      alert('Download error: ' + error)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   return (
-    <div>
+    <div style={{ maxWidth: 560 }}>
       <h2 className="h2">Download Annotated PDF</h2>
-      <button className="btn btn-primary">Download</button>
+      <div style={{ display: 'grid', gap: 12 }}>
+        <input 
+          type="text" 
+          placeholder="Enter File ID" 
+          value={fileId}
+          onChange={(e) => setFileId(e.target.value)}
+          className="input"
+        />
+        <button 
+          className="btn btn-primary" 
+          onClick={handleDownload}
+          disabled={downloading}
+        >
+          {downloading ? 'Downloading...' : 'Download'}
+        </button>
+        <div style={{ fontSize: '14px', color: '#b0b0b0' }}>
+          <p>To get a File ID:</p>
+          <ol style={{ marginLeft: '20px' }}>
+            <li>Upload a PDF first</li>
+            <li>Copy the File ID from the upload confirmation</li>
+            <li>Paste it here and click Download</li>
+          </ol>
+        </div>
+      </div>
     </div>
   )
 }

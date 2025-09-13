@@ -13,9 +13,7 @@
 }
 
 /* Base */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind directives removed - using custom CSS instead */
 
 html, body, #root { height: 100%; }
 body {

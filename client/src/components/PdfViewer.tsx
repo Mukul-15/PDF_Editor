@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Annotations, TextAnnotation, HighlightAnnotation } from '../lib/annotations'
+import { Document, Page, pdfjs } from 'react-pdf'
+import type { Annotations, TextAnnotation, HighlightAnnotation } from '../lib/annotations'
 
-// Placeholder viewer until react-pdf is installed
+// Set up PDF.js worker
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`
+
 export default function PdfViewer({
 	fileUrl,
 	annotations,
@@ -11,51 +14,250 @@ export default function PdfViewer({
 	annotations: Annotations
 	onChange: (next: Annotations) => void
 }) {
-	const [tool, setTool] = useState<'text' | 'highlight' | null>(null)
-	const containerRef = useRef<HTMLDivElement | null>(null)
+	const [numPages, setNumPages] = useState<number>(0)
+	const [currentPage, setCurrentPage] = useState<number>(1)
+	const [selectedTool, setSelectedTool] = useState<'text' | 'highlight' | null>(null)
+	const [isDrawing, setIsDrawing] = useState(false)
+	const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null)
+	const canvasRef = useRef<HTMLCanvasElement>(null)
+	const containerRef = useRef<HTMLDivElement>(null)
 
-	useEffect(() => {
-		if (!containerRef.current) return
-		const el = containerRef.current
-		const handleClick = (e: MouseEvent) => {
-			if (!tool) return
-			const rect = el.getBoundingClientRect()
-			const x = e.clientX - rect.left
-			const y = rect.height - (e.clientY - rect.top)
-			if (tool === 'text') {
-				const t: TextAnnotation = { id: crypto.randomUUID(), page: 0, x, y, text: 'Note' }
-				onChange({ ...annotations, texts: [...annotations.texts, t] })
+	// Handle page load
+	const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+		setNumPages(numPages)
+	}
+
+	// Handle canvas click for annotations
+	const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
+		if (!selectedTool || !fileUrl) return
+
+		const canvas = canvasRef.current
+		if (!canvas) return
+
+		const rect = canvas.getBoundingClientRect()
+		const x = event.clientX - rect.left
+		const y = event.clientY - rect.top
+
+		if (selectedTool === 'text') {
+			const text = prompt('Enter text annotation:')
+			if (text) {
+				const newAnnotation: TextAnnotation = {
+					id: crypto.randomUUID(),
+					page: currentPage - 1,
+					x: x,
+					y: y,
+					text: text,
+				}
+				onChange({
+					...annotations,
+					texts: [...annotations.texts, newAnnotation],
+				})
 			}
-			if (tool === 'highlight') {
-				const h: HighlightAnnotation = { id: crypto.randomUUID(), page: 0, x, y, width: 120, height: 18 }
-				onChange({ ...annotations, highlights: [...annotations.highlights, h] })
+		} else if (selectedTool === 'highlight') {
+			if (!isDrawing) {
+				setIsDrawing(true)
+				setDrawStart({ x, y })
+			} else {
+				// Finish highlight
+				if (drawStart) {
+					const width = Math.abs(x - drawStart.x)
+					const height = Math.abs(y - drawStart.y)
+					const newAnnotation: HighlightAnnotation = {
+						id: crypto.randomUUID(),
+						page: currentPage - 1,
+						x: Math.min(x, drawStart.x),
+						y: Math.min(y, drawStart.y),
+						width: width,
+						height: height,
+					}
+					onChange({
+						...annotations,
+						highlights: [...annotations.highlights, newAnnotation],
+					})
+				}
+				setIsDrawing(false)
+				setDrawStart(null)
 			}
 		}
-		el.addEventListener('click', handleClick)
-		return () => el.removeEventListener('click', handleClick)
-	}, [tool, annotations, onChange])
+	}
+
+	// Draw annotations on canvas
+	useEffect(() => {
+		const canvas = canvasRef.current
+		if (!canvas) return
+
+		const ctx = canvas.getContext('2d')
+		if (!ctx) return
+
+		// Clear canvas
+		ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+		// Draw text annotations for current page
+		annotations.texts
+			.filter(ann => ann.page === currentPage - 1)
+			.forEach(ann => {
+				ctx.fillStyle = '#ffeb3b'
+				ctx.font = '12px Arial'
+				ctx.fillText(ann.text, ann.x, ann.y)
+			})
+
+		// Draw highlight annotations for current page
+		annotations.highlights
+			.filter(ann => ann.page === currentPage - 1)
+			.forEach(ann => {
+				ctx.fillStyle = 'rgba(255, 235, 59, 0.3)'
+				ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
+			})
+
+		// Draw current highlight being drawn
+		if (isDrawing && drawStart) {
+			ctx.strokeStyle = '#ffeb3b'
+			ctx.lineWidth = 2
+			ctx.setLineDash([5, 5])
+			ctx.strokeRect(drawStart.x, drawStart.y, 0, 0)
+		}
+	}, [annotations, currentPage, isDrawing, drawStart])
+
+	// Update canvas size when page changes
+	useEffect(() => {
+		const canvas = canvasRef.current
+		const container = containerRef.current
+		if (!canvas || !container) return
+
+		const updateCanvasSize = () => {
+			const rect = container.getBoundingClientRect()
+			canvas.width = rect.width
+			canvas.height = rect.height
+		}
+
+		updateCanvasSize()
+		window.addEventListener('resize', updateCanvasSize)
+		return () => window.removeEventListener('resize', updateCanvasSize)
+	}, [currentPage])
+
+	if (!fileUrl) {
+		return (
+			<div style={{ 
+				display: 'flex', 
+				alignItems: 'center', 
+				justifyContent: 'center', 
+				height: '100%',
+				color: '#b0b0b0',
+				fontSize: '1.1rem'
+			}}>
+				No PDF selected. Upload a PDF first.
+			</div>
+		)
+	}
 
 	return (
-		<div className="space-y-2">
-			<div className="flex gap-2">
-				<button onClick={() => setTool('text')} className={`px-3 py-1 rounded border ${tool==='text' ? 'bg-black text-white' : ''}`}>Text</button>
-				<button onClick={() => setTool('highlight')} className={`px-3 py-1 rounded border ${tool==='highlight' ? 'bg-black text-white' : ''}`}>Highlight</button>
-				<button onClick={() => setTool(null)} className="px-3 py-1 rounded border">Select</button>
-			</div>
-			<div ref={containerRef} className="relative border bg-white rounded h-[70vh] overflow-hidden">
-				{/* Simulated PDF page area */}
-				<div className="absolute inset-0 grid place-items-center text-gray-400">
-					{fileUrl ? 'PDF preview (install react-pdf to enable rendering)' : 'No PDF loaded'}
+		<div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+			{/* Toolbar */}
+			<div style={{ 
+				padding: '12px', 
+				borderBottom: '1px solid #444',
+				display: 'flex',
+				gap: '8px',
+				alignItems: 'center'
+			}}>
+				<button
+					className={`btn ${selectedTool === 'text' ? 'btn-primary' : 'btn-outline'}`}
+					onClick={() => setSelectedTool(selectedTool === 'text' ? null : 'text')}
+				>
+					Text
+				</button>
+				<button
+					className={`btn ${selectedTool === 'highlight' ? 'btn-primary' : 'btn-outline'}`}
+					onClick={() => setSelectedTool(selectedTool === 'highlight' ? null : 'highlight')}
+				>
+					Highlight
+				</button>
+				{selectedTool && (
+					<button
+						className="btn btn-outline"
+						onClick={() => setSelectedTool(null)}
+					>
+						Cancel
+					</button>
+				)}
+				<div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+					<button
+						className="btn btn-outline"
+						onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+						disabled={currentPage <= 1}
+					>
+						←
+					</button>
+					<span style={{ fontSize: '14px', color: '#b0b0b0' }}>
+						{currentPage} / {numPages}
+					</span>
+					<button
+						className="btn btn-outline"
+						onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))}
+						disabled={currentPage >= numPages}
+					>
+						→
+					</button>
 				</div>
-				{annotations.highlights.map(h => (
-					<div key={h.id} style={{ left: h.x, bottom: h.y, width: h.width, height: h.height }} className="absolute bg-yellow-300/50 pointer-events-none" />
-				))}
-				{annotations.texts.map(t => (
-					<div key={t.id} style={{ left: t.x, bottom: t.y }} className="absolute text-sm text-black bg-yellow-50/80 px-1 rounded">
-						{t.text}
-					</div>
-				))}
 			</div>
+
+			{/* PDF Viewer */}
+			<div 
+				ref={containerRef}
+				style={{ 
+					flex: 1, 
+					position: 'relative', 
+					overflow: 'auto',
+					display: 'flex',
+					justifyContent: 'center',
+					alignItems: 'flex-start',
+					padding: '20px'
+				}}
+			>
+				<div style={{ position: 'relative' }}>
+					<Document
+						file={fileUrl}
+						onLoadSuccess={onDocumentLoadSuccess}
+						loading={<div style={{ color: '#b0b0b0' }}>Loading PDF...</div>}
+						error={<div style={{ color: '#ff6b6b' }}>Error loading PDF</div>}
+					>
+						<Page
+							pageNumber={currentPage}
+							width={600}
+							renderTextLayer={false}
+							renderAnnotationLayer={false}
+						/>
+					</Document>
+					
+					{/* Annotation Canvas Overlay */}
+					<canvas
+						ref={canvasRef}
+						onClick={handleCanvasClick}
+						style={{
+							position: 'absolute',
+							top: 0,
+							left: 0,
+							width: '100%',
+							height: '100%',
+							cursor: selectedTool ? 'crosshair' : 'default',
+							zIndex: 10
+						}}
+					/>
+				</div>
+			</div>
+
+			{/* Instructions */}
+			{selectedTool && (
+				<div style={{ 
+					padding: '12px', 
+					background: '#2a2a2a', 
+					borderTop: '1px solid #444',
+					fontSize: '14px',
+					color: '#b0b0b0'
+				}}>
+					{selectedTool === 'text' ? 'Click on the PDF to add text annotation' : 'Click and drag to create highlight'}
+				</div>
+			)}
 		</div>
 	)
 }
