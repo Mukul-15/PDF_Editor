@@ -9,6 +9,16 @@ export default function ViewerPage() {
 	const [fileId, setFileId] = useState('')
 	const [loading, setLoading] = useState(false)
 
+	// Auto-load from localStorage on mount
+	useEffect(() => {
+		const lastId = localStorage.getItem('pdf_editor_last_file_id')
+		if (lastId) {
+			setFileId(lastId)
+			// We don't auto-load the PDF bytes to avoid heavy initial load, 
+			// but we could if the user prefers. For now, they click "Load".
+		}
+	}, [])
+
 	// Load annotations when fileId changes
 	useEffect(() => {
 		if (!fileId) return
@@ -29,10 +39,11 @@ export default function ViewerPage() {
 	}, [fileId])
 
 	// Save annotations when they change
+	// Debouncing would be better here for production
 	useEffect(() => {
-		if (!fileId) return
+		if (!fileId || !fileUrl) return
 
-		const saveAnnotations = async () => {
+		const timer = setTimeout(async () => {
 			try {
 				await fetch(`/api/annotations/${fileId}`, {
 					method: 'POST',
@@ -42,12 +53,12 @@ export default function ViewerPage() {
 			} catch (error) {
 				console.error('Failed to save annotations:', error)
 			}
-		}
+		}, 1000)
 
-		saveAnnotations()
-	}, [annotations, fileId])
+		return () => clearTimeout(timer)
+	}, [annotations, fileId, fileUrl])
 
-	const handleFileSelect = async () => {
+	const handleFileLoad = async () => {
 		if (!fileId.trim()) {
 			alert('Please enter a file ID')
 			return
@@ -60,6 +71,7 @@ export default function ViewerPage() {
 				const blob = await response.blob()
 				const url = URL.createObjectURL(blob)
 				setFileUrl(url)
+				localStorage.setItem('pdf_editor_last_file_id', fileId)
 			} else {
 				alert('File not found')
 			}
@@ -73,44 +85,51 @@ export default function ViewerPage() {
 	return (
 		<div className="viewer-layout">
 			<div className="sidebar">
-				<h3 className="h2">Load PDF</h3>
-				<div style={{ display: 'grid', gap: '12px', marginBottom: '24px' }}>
-					<input
-						type="text"
-						placeholder="Enter File ID"
-						value={fileId}
-						onChange={(e) => setFileId(e.target.value)}
-						className="input"
-					/>
-					<button
-						className="btn btn-primary"
-						onClick={handleFileSelect}
-						disabled={loading}
-					>
-						{loading ? 'Loading...' : 'Load PDF'}
-					</button>
+				<div>
+					<h3 className="h3">Load Project</h3>
+					<div style={{ display: 'grid', gap: '8px' }}>
+						<input
+							type="text"
+							placeholder="Enter File ID"
+							value={fileId}
+							onChange={(e) => setFileId(e.target.value)}
+							className="input"
+						/>
+						<button
+							className="btn btn-primary"
+							onClick={handleFileLoad}
+							disabled={loading}
+						>
+							{loading ? 'Loading...' : 'Load PDF'}
+						</button>
+					</div>
 				</div>
 
-				<h3 className="h2">Tools</h3>
 				<div className="tools">
-					<p style={{ fontSize: '14px', color: '#b0b0b0', marginBottom: '12px' }}>
-						Select a tool and click on the PDF to add annotations
+					<h3 className="h3">Instructions</h3>
+					<p style={{ fontSize: '12px', color: 'var(--muted)' }}>
+						1. Select a tool above the PDF.<br/>
+						2. Click to add text.<br/>
+						3. Click twice to create a highlight.
 					</p>
-					<div style={{ fontSize: '12px', color: '#777' }}>
-						<p><strong>Text:</strong> Click to add text notes</p>
-						<p><strong>Highlight:</strong> Click and drag to highlight</p>
-					</div>
 				</div>
 
-				{annotations.texts.length > 0 || annotations.highlights.length > 0 ? (
-					<div style={{ marginTop: '24px' }}>
-						<h4 className="h3">Annotations</h4>
-						<div style={{ fontSize: '12px', color: '#b0b0b0' }}>
-							<p>Texts: {annotations.texts.length}</p>
-							<p>Highlights: {annotations.highlights.length}</p>
-						</div>
+				{fileId && (
+					<div style={{ marginTop: 'auto' }}>
+						<button 
+							className="btn btn-outline" 
+							style={{ width: '100%', color: '#ff6b6b' }}
+							onClick={async () => {
+								if (confirm('Clear all annotations?')) {
+									await fetch(`/api/annotations/${fileId}`, { method: 'DELETE' })
+									setAnnotations(createEmptyAnnotations())
+								}
+							}}
+						>
+							Clear All
+						</button>
 					</div>
-				) : null}
+				)}
 			</div>
 			<div className="viewer">
 				<PdfViewer

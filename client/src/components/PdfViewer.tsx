@@ -5,6 +5,8 @@ import type { Annotations, TextAnnotation, HighlightAnnotation } from '../lib/an
 // Set up PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`
 
+const PDF_VIEW_WIDTH = 800; // Standard stable width for coordinate calculation
+
 export default function PdfViewer({
 	fileUrl,
 	annotations,
@@ -19,17 +21,23 @@ export default function PdfViewer({
 	const [selectedTool, setSelectedTool] = useState<'text' | 'highlight' | null>(null)
 	const [isDrawing, setIsDrawing] = useState(false)
 	const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null)
+	
 	const canvasRef = useRef<HTMLCanvasElement>(null)
 	const containerRef = useRef<HTMLDivElement>(null)
+	const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null)
 
-	// Handle page load
 	const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
 		setNumPages(numPages)
 	}
 
-	// Handle canvas click for annotations
+	const onPageLoadSuccess = (page: any) => {
+		// Get the actual viewport dimensions at scale 1
+		const viewport = page.getViewport({ scale: 1 });
+		setPageSize({ width: viewport.width, height: viewport.height });
+	}
+
 	const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-		if (!selectedTool || !fileUrl) return
+		if (!selectedTool || !fileUrl || !pageSize) return
 
 		const canvas = canvasRef.current
 		if (!canvas) return
@@ -38,14 +46,20 @@ export default function PdfViewer({
 		const x = event.clientX - rect.left
 		const y = event.clientY - rect.top
 
+		// Convert screen pixels to PDF points
+		// width / PDF_VIEW_WIDTH is the scale factor we used in <Page />
+		const scale = PDF_VIEW_WIDTH / pageSize.width;
+		const pdfX = x / scale;
+		const pdfY = (pageSize.height) - (y / scale); // Invert Y for PDF coordinate system (0,0 is bottom-left)
+
 		if (selectedTool === 'text') {
 			const text = prompt('Enter text annotation:')
 			if (text) {
 				const newAnnotation: TextAnnotation = {
 					id: crypto.randomUUID(),
 					page: currentPage - 1,
-					x: x,
-					y: y,
+					x: pdfX,
+					y: pdfY,
 					text: text,
 				}
 				onChange({
@@ -58,15 +72,17 @@ export default function PdfViewer({
 				setIsDrawing(true)
 				setDrawStart({ x, y })
 			} else {
-				// Finish highlight
 				if (drawStart) {
-					const width = Math.abs(x - drawStart.x)
-					const height = Math.abs(y - drawStart.y)
+					const width = Math.abs(x - drawStart.x) / scale
+					const height = Math.abs(y - drawStart.y) / scale
+					const startX = Math.min(x, drawStart.x) / scale
+					const startY = (pageSize.height) - (Math.max(y, drawStart.y) / scale)
+					
 					const newAnnotation: HighlightAnnotation = {
 						id: crypto.randomUUID(),
 						page: currentPage - 1,
-						x: Math.min(x, drawStart.x),
-						y: Math.min(y, drawStart.y),
+						x: startX,
+						y: startY,
 						width: width,
 						height: height,
 					}
@@ -81,85 +97,63 @@ export default function PdfViewer({
 		}
 	}
 
+	const deleteAnnotation = (id: string, type: 'texts' | 'highlights') => {
+		const next = { ...annotations };
+		if (type === 'texts') {
+			next.texts = next.texts.filter(a => a.id !== id);
+		} else {
+			next.highlights = next.highlights.filter(a => a.id !== id);
+		}
+		onChange(next);
+	}
+
 	// Draw annotations on canvas
 	useEffect(() => {
 		const canvas = canvasRef.current
-		if (!canvas) return
+		if (!canvas || !pageSize) return
 
 		const ctx = canvas.getContext('2d')
 		if (!ctx) return
 
-		// Clear canvas
+		const scale = PDF_VIEW_WIDTH / pageSize.width;
+		
 		ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-		// Draw text annotations for current page
+		// Draw text
 		annotations.texts
 			.filter(ann => ann.page === currentPage - 1)
 			.forEach(ann => {
-				ctx.fillStyle = '#ffeb3b'
-				ctx.font = '12px Arial'
-				ctx.fillText(ann.text, ann.x, ann.y)
+				const screenX = ann.x * scale;
+				const screenY = (pageSize.height - ann.y) * scale;
+				ctx.fillStyle = '#ffeb3b';
+				ctx.font = 'bold 14px Arial';
+				ctx.fillText(ann.text, screenX, screenY);
 			})
 
-		// Draw highlight annotations for current page
+		// Draw highlights
 		annotations.highlights
 			.filter(ann => ann.page === currentPage - 1)
 			.forEach(ann => {
-				ctx.fillStyle = 'rgba(255, 235, 59, 0.3)'
-				ctx.fillRect(ann.x, ann.y, ann.width, ann.height)
+				const screenX = ann.x * scale;
+				const screenY = (pageSize.height - (ann.y + ann.height)) * scale;
+				ctx.fillStyle = 'rgba(255, 235, 59, 0.4)';
+				ctx.fillRect(screenX, screenY, ann.width * scale, ann.height * scale);
 			})
 
-		// Draw current highlight being drawn
 		if (isDrawing && drawStart) {
-			ctx.strokeStyle = '#ffeb3b'
-			ctx.lineWidth = 2
-			ctx.setLineDash([5, 5])
-			ctx.strokeRect(drawStart.x, drawStart.y, 0, 0)
+			ctx.strokeStyle = '#ffeb3b';
+			ctx.lineWidth = 1;
+			ctx.setLineDash([4, 4]);
 		}
-	}, [annotations, currentPage, isDrawing, drawStart])
-
-	// Update canvas size when page changes
-	useEffect(() => {
-		const canvas = canvasRef.current
-		const container = containerRef.current
-		if (!canvas || !container) return
-
-		const updateCanvasSize = () => {
-			const rect = container.getBoundingClientRect()
-			canvas.width = rect.width
-			canvas.height = rect.height
-		}
-
-		updateCanvasSize()
-		window.addEventListener('resize', updateCanvasSize)
-		return () => window.removeEventListener('resize', updateCanvasSize)
-	}, [currentPage])
+	}, [annotations, currentPage, pageSize, isDrawing, drawStart])
 
 	if (!fileUrl) {
-		return (
-			<div style={{ 
-				display: 'flex', 
-				alignItems: 'center', 
-				justifyContent: 'center', 
-				height: '100%',
-				color: '#b0b0b0',
-				fontSize: '1.1rem'
-			}}>
-				No PDF selected. Upload a PDF first.
-			</div>
-		)
+		return <div className="viewer-empty">No PDF selected. Upload a PDF first.</div>
 	}
 
 	return (
 		<div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-			{/* Toolbar */}
-			<div style={{ 
-				padding: '12px', 
-				borderBottom: '1px solid #444',
-				display: 'flex',
-				gap: '8px',
-				alignItems: 'center'
-			}}>
+			<div className="viewer-toolbar">
 				<button
 					className={`btn ${selectedTool === 'text' ? 'btn-primary' : 'btn-outline'}`}
 					onClick={() => setSelectedTool(selectedTool === 'text' ? null : 'text')}
@@ -172,92 +166,61 @@ export default function PdfViewer({
 				>
 					Highlight
 				</button>
-				{selectedTool && (
-					<button
-						className="btn btn-outline"
-						onClick={() => setSelectedTool(null)}
-					>
-						Cancel
-					</button>
-				)}
+				
 				<div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
-					<button
-						className="btn btn-outline"
-						onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-						disabled={currentPage <= 1}
-					>
-						←
-					</button>
-					<span style={{ fontSize: '14px', color: '#b0b0b0' }}>
-						{currentPage} / {numPages}
-					</span>
-					<button
-						className="btn btn-outline"
-						onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))}
-						disabled={currentPage >= numPages}
-					>
-						→
-					</button>
+					<button className="btn btn-outline" onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1}>←</button>
+					<span style={{ fontSize: '14px' }}>{currentPage} / {numPages}</span>
+					<button className="btn btn-outline" onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))} disabled={currentPage >= numPages}>→</button>
 				</div>
 			</div>
 
-			{/* PDF Viewer */}
-			<div 
-				ref={containerRef}
-				style={{ 
-					flex: 1, 
-					position: 'relative', 
-					overflow: 'auto',
-					display: 'flex',
-					justifyContent: 'center',
-					alignItems: 'flex-start',
-					padding: '20px'
-				}}
-			>
-				<div style={{ position: 'relative' }}>
+			<div ref={containerRef} className="viewer-container">
+				<div style={{ position: 'relative', width: PDF_VIEW_WIDTH }}>
 					<Document
 						file={fileUrl}
 						onLoadSuccess={onDocumentLoadSuccess}
-						loading={<div style={{ color: '#b0b0b0' }}>Loading PDF...</div>}
-						error={<div style={{ color: '#ff6b6b' }}>Error loading PDF</div>}
+						loading={<div className="muted">Loading PDF...</div>}
 					>
 						<Page
 							pageNumber={currentPage}
-							width={600}
+							width={PDF_VIEW_WIDTH}
+							onLoadSuccess={onPageLoadSuccess}
 							renderTextLayer={false}
 							renderAnnotationLayer={false}
 						/>
 					</Document>
 					
-					{/* Annotation Canvas Overlay */}
-					<canvas
-						ref={canvasRef}
-						onClick={handleCanvasClick}
-						style={{
-							position: 'absolute',
-							top: 0,
-							left: 0,
-							width: '100%',
-							height: '100%',
-							cursor: selectedTool ? 'crosshair' : 'default',
-							zIndex: 10
-						}}
-					/>
+					{pageSize && (
+						<canvas
+							ref={canvasRef}
+							onClick={handleCanvasClick}
+							width={PDF_VIEW_WIDTH}
+							height={pageSize.height * (PDF_VIEW_WIDTH / pageSize.width)}
+							style={{
+								position: 'absolute',
+								top: 0,
+								left: 0,
+								cursor: selectedTool ? 'crosshair' : 'default',
+								zIndex: 10
+							}}
+						/>
+					)}
 				</div>
 			</div>
 
-			{/* Instructions */}
-			{selectedTool && (
-				<div style={{ 
-					padding: '12px', 
-					background: '#2a2a2a', 
-					borderTop: '1px solid #444',
-					fontSize: '14px',
-					color: '#b0b0b0'
-				}}>
-					{selectedTool === 'text' ? 'Click on the PDF to add text annotation' : 'Click and drag to create highlight'}
-				</div>
-			)}
+			<div className="viewer-sidebar-list">
+				{annotations.texts.filter(a => a.page === currentPage - 1).length > 0 && (
+					<div className="ann-group">
+						<div className="small muted">Texts</div>
+						{annotations.texts.filter(a => a.page === currentPage - 1).map(a => (
+							<div key={a.id} className="ann-item">
+								<span>{a.text}</span>
+								<button onClick={() => deleteAnnotation(a.id, 'texts')}>×</button>
+							</div>
+						))}
+					</div>
+				)}
+			</div>
 		</div>
 	)
 }
