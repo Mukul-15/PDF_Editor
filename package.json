@@ -1,0 +1,14 @@
+{
+  "name": "pdf-editor-root",
+  "version": "1.0.0",
+  "description": "Root for PDF Editor",
+  "private": true,
+  "scripts": {
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install",
+    "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm run dev\"",
+    "start": "cd server && npm start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

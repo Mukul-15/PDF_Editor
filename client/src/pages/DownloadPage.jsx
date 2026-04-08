@@ -39,9 +39,9 @@ export default function DownloadPage() {
 	}
 
 	return (
-		<div style={{ maxWidth: 560 }}>
+		<div className="page-center-small">
 			<h2 className="h2">Download Annotated PDF</h2>
-			<div style={{ display: 'grid', gap: 12 }}>
+			<div className="form-stack">
 				<input 
 					type="text" 
 					placeholder="Enter File ID" 
@@ -56,9 +56,9 @@ export default function DownloadPage() {
 				>
 					{downloading ? 'Downloading...' : 'Download PDF'}
 				</button>
-				<div style={{ fontSize: '14px', color: '#b0b0b0' }}>
-					<p>To get a File ID:</p>
-					<ol style={{ marginLeft: '20px' }}>
+				<div className="status-box">
+					<h3 className="h3">Instructions</h3>
+					<ol className="small muted" style={{ marginLeft: 'var(--space-md)' }}>
 						<li>Upload a PDF first</li>
 						<li>Copy the File ID from the upload confirmation</li>
 						<li>Paste it here and click Download</li>

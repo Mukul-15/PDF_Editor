@@ -8,7 +8,7 @@ dist/
 client/dist/
 
 # Local data and uploads (do not commit user data)
-server/uploads/*.pdf
+server/uploads/
 server/data/*.json
 !server/uploads/.gitkeep
 !server/data/.gitkeep

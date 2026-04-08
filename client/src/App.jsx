@@ -1,19 +1,19 @@
-import { BrowserRouter, Link, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Link, Route, Routes, useLocation } from 'react-router-dom'
 import './index.css'
 import UploadPage from './pages/UploadPage'
 import ViewerPage from './pages/ViewerPage'
 import DownloadPage from './pages/DownloadPage'
 
-function Layout({ children }: { children: React.ReactNode }) {
+function Layout({ children }) {
   return (
     <div className="app">
       <header className="header">
         <div className="container header-inner">
           <Link to="/" className="brand">PDF Editor</Link>
           <nav className="nav">
-            <Link to="/upload">Upload</Link>
-            <Link to="/viewer">View / Edit</Link>
-            <Link to="/download">Download</Link>
+            <NavLink to="/upload">Upload</NavLink>
+            <NavLink to="/viewer">View / Edit</NavLink>
+            <NavLink to="/download">Download</NavLink>
           </nav>
         </div>
       </header>
@@ -21,9 +21,19 @@ function Layout({ children }: { children: React.ReactNode }) {
         {children}
       </main>
       <footer className="footer">
-        <div className="container footer-inner small">Basic demo for learning - Refactored for industry standards</div>
+        <div className="container footer-inner small muted">Basic demo for learning - Refactored for industry standards (JS Version)</div>
       </footer>
     </div>
+  )
+}
+
+function NavLink({ to, children }) {
+  const location = useLocation()
+  const isActive = location.pathname === to
+  return (
+    <Link to={to} className={isActive ? 'active' : ''}>
+      {children}
+    </Link>
   )
 }
 
@@ -37,7 +47,7 @@ function Dashboard() {
   )
 }
 
-function CardLink({ title, description, to }: { title: string; description: string; to: string }) {
+function CardLink({ title, description, to }) {
   return (
     <Link to={to} className="card">
       <div className="card-title">{title}</div>

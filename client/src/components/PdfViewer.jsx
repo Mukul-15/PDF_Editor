@@ -1,43 +1,39 @@
 import { useEffect, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
-import type { Annotations, TextAnnotation, HighlightAnnotation } from '../lib/annotations'
 
 // Set up PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 
 const PDF_VIEW_WIDTH = 800; // Standard stable width for coordinate calculation
 
 export default function PdfViewer({
 	fileUrl,
-	annotations,
+	annotations = { texts: [], highlights: [] },
 	onChange,
-}: {
-	fileUrl?: string
-	annotations: Annotations
-	onChange: (next: Annotations) => void
 }) {
-	const [numPages, setNumPages] = useState<number>(0)
-	const [currentPage, setCurrentPage] = useState<number>(1)
-	const [selectedTool, setSelectedTool] = useState<'text' | 'highlight' | null>(null)
+	const [numPages, setNumPages] = useState(0)
+	const [currentPage, setCurrentPage] = useState(1)
+	const [selectedTool, setSelectedTool] = useState(null)
 	const [isDrawing, setIsDrawing] = useState(false)
-	const [drawStart, setDrawStart] = useState<{ x: number; y: number } | null>(null)
+	const [drawStart, setDrawStart] = useState(null)
 	
-	const canvasRef = useRef<HTMLCanvasElement>(null)
-	const containerRef = useRef<HTMLDivElement>(null)
-	const [pageSize, setPageSize] = useState<{ width: number; height: number } | null>(null)
+	const canvasRef = useRef(null)
+	const containerRef = useRef(null)
+	const [pageSize, setPageSize] = useState(null)
 
-	const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+	const onDocumentLoadSuccess = ({ numPages }) => {
 		setNumPages(numPages)
 	}
 
-	const onPageLoadSuccess = (page: any) => {
-		// Get the actual viewport dimensions at scale 1
-		const viewport = page.getViewport({ scale: 1 });
-		setPageSize({ width: viewport.width, height: viewport.height });
+	const onPageLoadSuccess = (page) => {
+		if (page && typeof page.getViewport === 'function') {
+			const viewport = page.getViewport({ scale: 1 });
+			setPageSize({ width: viewport.width, height: viewport.height });
+		}
 	}
 
-	const handleCanvasClick = (event: React.MouseEvent<HTMLCanvasElement>) => {
-		if (!selectedTool || !fileUrl || !pageSize) return
+	const handleCanvasClick = (event) => {
+		if (!selectedTool || !fileUrl || !pageSize || !onChange) return
 
 		const canvas = canvasRef.current
 		if (!canvas) return
@@ -46,16 +42,14 @@ export default function PdfViewer({
 		const x = event.clientX - rect.left
 		const y = event.clientY - rect.top
 
-		// Convert screen pixels to PDF points
-		// width / PDF_VIEW_WIDTH is the scale factor we used in <Page />
 		const scale = PDF_VIEW_WIDTH / pageSize.width;
 		const pdfX = x / scale;
-		const pdfY = (pageSize.height) - (y / scale); // Invert Y for PDF coordinate system (0,0 is bottom-left)
+		const pdfY = pageSize.height - (y / scale);
 
 		if (selectedTool === 'text') {
 			const text = prompt('Enter text annotation:')
 			if (text) {
-				const newAnnotation: TextAnnotation = {
+				const newAnnotation = {
 					id: crypto.randomUUID(),
 					page: currentPage - 1,
 					x: pdfX,
@@ -64,7 +58,7 @@ export default function PdfViewer({
 				}
 				onChange({
 					...annotations,
-					texts: [...annotations.texts, newAnnotation],
+					texts: [...(annotations.texts || []), newAnnotation],
 				})
 			}
 		} else if (selectedTool === 'highlight') {
@@ -76,9 +70,9 @@ export default function PdfViewer({
 					const width = Math.abs(x - drawStart.x) / scale
 					const height = Math.abs(y - drawStart.y) / scale
 					const startX = Math.min(x, drawStart.x) / scale
-					const startY = (pageSize.height) - (Math.max(y, drawStart.y) / scale)
+					const startY = pageSize.height - (Math.max(y, drawStart.y) / scale)
 					
-					const newAnnotation: HighlightAnnotation = {
+					const newAnnotation = {
 						id: crypto.randomUUID(),
 						page: currentPage - 1,
 						x: startX,
@@ -88,7 +82,7 @@ export default function PdfViewer({
 					}
 					onChange({
 						...annotations,
-						highlights: [...annotations.highlights, newAnnotation],
+						highlights: [...(annotations.highlights || []), newAnnotation],
 					})
 				}
 				setIsDrawing(false)
@@ -97,17 +91,17 @@ export default function PdfViewer({
 		}
 	}
 
-	const deleteAnnotation = (id: string, type: 'texts' | 'highlights') => {
+	const deleteAnnotation = (id, type) => {
+		if (!onChange) return
 		const next = { ...annotations };
 		if (type === 'texts') {
-			next.texts = next.texts.filter(a => a.id !== id);
+			next.texts = (next.texts || []).filter(a => a.id !== id);
 		} else {
-			next.highlights = next.highlights.filter(a => a.id !== id);
+			next.highlights = (next.highlights || []).filter(a => a.id !== id);
 		}
 		onChange(next);
 	}
 
-	// Draw annotations on canvas
 	useEffect(() => {
 		const canvas = canvasRef.current
 		if (!canvas || !pageSize) return
@@ -116,29 +110,30 @@ export default function PdfViewer({
 		if (!ctx) return
 
 		const scale = PDF_VIEW_WIDTH / pageSize.width;
-		
 		ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-		// Draw text
-		annotations.texts
-			.filter(ann => ann.page === currentPage - 1)
-			.forEach(ann => {
-				const screenX = ann.x * scale;
-				const screenY = (pageSize.height - ann.y) * scale;
-				ctx.fillStyle = '#ffeb3b';
-				ctx.font = 'bold 14px Arial';
-				ctx.fillText(ann.text, screenX, screenY);
-			})
+		if (Array.isArray(annotations.texts)) {
+			annotations.texts
+				.filter(ann => ann.page === currentPage - 1)
+				.forEach(ann => {
+					const screenX = ann.x * scale;
+					const screenY = (pageSize.height - ann.y) * scale;
+					ctx.fillStyle = '#ffeb3b';
+					ctx.font = 'bold 14px Arial';
+					ctx.fillText(ann.text || '', screenX, screenY);
+				})
+		}
 
-		// Draw highlights
-		annotations.highlights
-			.filter(ann => ann.page === currentPage - 1)
-			.forEach(ann => {
-				const screenX = ann.x * scale;
-				const screenY = (pageSize.height - (ann.y + ann.height)) * scale;
-				ctx.fillStyle = 'rgba(255, 235, 59, 0.4)';
-				ctx.fillRect(screenX, screenY, ann.width * scale, ann.height * scale);
-			})
+		if (Array.isArray(annotations.highlights)) {
+			annotations.highlights
+				.filter(ann => ann.page === currentPage - 1)
+				.forEach(ann => {
+					const screenX = ann.x * scale;
+					const screenY = (pageSize.height - (ann.y + ann.height)) * scale;
+					ctx.fillStyle = 'rgba(255, 235, 59, 0.4)';
+					ctx.fillRect(screenX, screenY, ann.width * scale, ann.height * scale);
+				})
+		}
 
 		if (isDrawing && drawStart) {
 			ctx.strokeStyle = '#ffeb3b';
@@ -148,7 +143,7 @@ export default function PdfViewer({
 	}, [annotations, currentPage, pageSize, isDrawing, drawStart])
 
 	if (!fileUrl) {
-		return <div className="viewer-empty">No PDF selected. Upload a PDF first.</div>
+		return <div className="viewer-empty small muted">No PDF selected. Upload a PDF first.</div>
 	}
 
 	return (
@@ -167,19 +162,19 @@ export default function PdfViewer({
 					Highlight
 				</button>
 				
-				<div style={{ marginLeft: 'auto', display: 'flex', gap: '8px', alignItems: 'center' }}>
+				<div style={{ marginLeft: 'auto', display: 'flex', gap: 'var(--space-sm)', alignItems: 'center' }}>
 					<button className="btn btn-outline" onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage <= 1}>←</button>
-					<span style={{ fontSize: '14px' }}>{currentPage} / {numPages}</span>
+					<span className="small muted mono">{currentPage} / {numPages}</span>
 					<button className="btn btn-outline" onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))} disabled={currentPage >= numPages}>→</button>
 				</div>
 			</div>
 
-			<div ref={containerRef} className="viewer-container">
+			<div ref={containerRef} className="viewer-canvas-container">
 				<div style={{ position: 'relative', width: PDF_VIEW_WIDTH }}>
 					<Document
 						file={fileUrl}
 						onLoadSuccess={onDocumentLoadSuccess}
-						loading={<div className="muted">Loading PDF...</div>}
+						loading={<div className="muted small">Loading PDF...</div>}
 					>
 						<Page
 							pageNumber={currentPage}
@@ -209,9 +204,9 @@ export default function PdfViewer({
 			</div>
 
 			<div className="viewer-sidebar-list">
-				{annotations.texts.filter(a => a.page === currentPage - 1).length > 0 && (
+				{Array.isArray(annotations.texts) && annotations.texts.filter(a => a.page === currentPage - 1).length > 0 && (
 					<div className="ann-group">
-						<div className="small muted">Texts</div>
+						<div className="small muted">Texts on this page</div>
 						{annotations.texts.filter(a => a.page === currentPage - 1).map(a => (
 							<div key={a.id} className="ann-item">
 								<span>{a.text}</span>

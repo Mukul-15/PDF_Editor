@@ -2,13 +2,13 @@ import { useState } from 'react'
 
 export default function UploadPage() {
 	const [uploading, setUploading] = useState(false)
-	const [uploadedFile, setUploadedFile] = useState<{fileId: string, filename: string} | null>(null)
+	const [uploadedFile, setUploadedFile] = useState(null)
 
-	const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+	const handleSubmit = async (e) => {
 		e.preventDefault()
 		const form = e.currentTarget
-		const input = form.elements.namedItem('file') as HTMLInputElement
-		const file = input.files?.[0]
+		const input = form.elements.namedItem('file')
+		const file = input?.files?.[0]
 		if (!file) return
 
 		setUploading(true)
@@ -38,18 +38,18 @@ export default function UploadPage() {
 	}
 
 	return (
-		<div style={{ maxWidth: 560 }}>
+		<div className="page-center-small">
 			<h2 className="h2">Upload PDF</h2>
-			<form onSubmit={handleSubmit} style={{ display: 'grid', gap: 12 }}>
+			<form onSubmit={handleSubmit} className="form-stack">
 				<input name="file" type="file" accept="application/pdf" className="input" />
 				<button className="btn btn-primary" disabled={uploading}>
 					{uploading ? 'Uploading...' : 'Upload'}
 				</button>
 				{uploadedFile && (
-					<div style={{ padding: '12px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: '10px', fontSize: '14px' }}>
-						<div style={{ color: '#4caf50', fontWeight: 'bold', marginBottom: '4px' }}>✅ Uploaded: {uploadedFile.filename}</div>
-						<code>File ID: {uploadedFile.fileId}</code>
-						<p style={{ marginTop: '8px', fontSize: '12px', color: 'var(--muted)' }}>
+					<div className="status-box">
+						<div className="status-success">✅ Uploaded: {uploadedFile.filename}</div>
+						<code className="mono">File ID: {uploadedFile.fileId}</code>
+						<p className="muted small" style={{ marginTop: 'var(--space-sm)' }}>
 							The ID has been saved. You can now go to the Viewer.
 						</p>
 					</div>

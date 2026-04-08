@@ -46,6 +46,7 @@ app.post('/api/upload', upload.single('file'), async (req, res) => {
 app.get('/api/file/:id', (req, res) => {
 	const filePath = path.join(UPLOADS_DIR, `${req.params.id}.pdf`);
 	if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
+	res.setHeader('Content-Type', 'application/pdf');
 	res.sendFile(filePath);
 });
 

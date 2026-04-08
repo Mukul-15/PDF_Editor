@@ -51,5 +51,5 @@ async function mountFrontend(expressApp) {
 
 const PORT = process.env.PORT || 4000;
 mountFrontend(app).then(() => {
-	app.listen(PORT, () => console.log(`PDF Editor server: http://localhost:${PORT}`));
+	app.listen(PORT, '0.0.0.0', () => console.log(`PDF Editor server: http://localhost:${PORT}`));
 });

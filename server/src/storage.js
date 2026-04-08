@@ -18,13 +18,22 @@ async function readAnnotations() {
 		const data = await fs.readFile(ANNOTATIONS_FILE, 'utf-8');
 		return JSON.parse(data);
 	} catch (err) {
+		// Log error if it's more than just a missing file
+		if (err.code !== 'ENOENT') {
+			console.error('Error reading annotations file:', err);
+		}
 		return {};
 	}
 }
 
 async function writeAnnotations(data) {
 	await ensureDataDir();
-	await fs.writeFile(ANNOTATIONS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+	try {
+		await fs.writeFile(ANNOTATIONS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+	} catch (err) {
+		console.error('Error writing annotations file:', err);
+		throw err;
+	}
 }
 
 module.exports = {

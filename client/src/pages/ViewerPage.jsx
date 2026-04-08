@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
 import PdfViewer from '../components/PdfViewer'
-import type { Annotations } from '../lib/annotations'
 import { createEmptyAnnotations } from '../lib/annotations'
 
 export default function ViewerPage() {
-	const [fileUrl, setFileUrl] = useState<string | undefined>(undefined)
-	const [annotations, setAnnotations] = useState<Annotations>(createEmptyAnnotations())
+	const [fileUrl, setFileUrl] = useState(undefined)
+	const [annotations, setAnnotations] = useState(createEmptyAnnotations())
 	const [fileId, setFileId] = useState('')
 	const [loading, setLoading] = useState(false)
 
@@ -14,8 +13,6 @@ export default function ViewerPage() {
 		const lastId = localStorage.getItem('pdf_editor_last_file_id')
 		if (lastId) {
 			setFileId(lastId)
-			// We don't auto-load the PDF bytes to avoid heavy initial load, 
-			// but we could if the user prefers. For now, they click "Load".
 		}
 	}, [])
 
@@ -39,7 +36,6 @@ export default function ViewerPage() {
 	}, [fileId])
 
 	// Save annotations when they change
-	// Debouncing would be better here for production
 	useEffect(() => {
 		if (!fileId || !fileUrl) return
 
@@ -85,9 +81,9 @@ export default function ViewerPage() {
 	return (
 		<div className="viewer-layout">
 			<div className="sidebar">
-				<div>
+				<div className="sidebar-section">
 					<h3 className="h3">Load Project</h3>
-					<div style={{ display: 'grid', gap: '8px' }}>
+					<div className="form-stack">
 						<input
 							type="text"
 							placeholder="Enter File ID"
@@ -105,20 +101,20 @@ export default function ViewerPage() {
 					</div>
 				</div>
 
-				<div className="tools">
+				<div className="sidebar-section">
 					<h3 className="h3">Instructions</h3>
-					<p style={{ fontSize: '12px', color: 'var(--muted)' }}>
+					<p className="small muted">
 						1. Select a tool above the PDF.<br/>
 						2. Click to add text.<br/>
-						3. Click twice to create a highlight.
+						3. Click twice and drag to highlight.
 					</p>
 				</div>
 
 				{fileId && (
-					<div style={{ marginTop: 'auto' }}>
+					<div className="mt-auto">
 						<button 
-							className="btn btn-outline" 
-							style={{ width: '100%', color: '#ff6b6b' }}
+							className="btn btn-outline btn-error" 
+							style={{ width: '100%' }}
 							onClick={async () => {
 								if (confirm('Clear all annotations?')) {
 									await fetch(`/api/annotations/${fileId}`, { method: 'DELETE' })
@@ -131,7 +127,7 @@ export default function ViewerPage() {
 					</div>
 				)}
 			</div>
-			<div className="viewer">
+			<div className="viewer-window">
 				<PdfViewer
 					fileUrl={fileUrl}
 					annotations={annotations}
